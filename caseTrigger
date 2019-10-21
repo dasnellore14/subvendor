@@ -1,0 +1,358 @@
+public class CaseTriggerHandler {
+    /*------------------------------------------------------------
+Author:        Dasaradha Ram Budamagunta
+Company:       TEK Systems Global Services
+Description:   A method for autoLoad of Tasks on secondary supplier case (After Insert)
+Inputs:        "caseList" - List of cases 
+Test Class:    "CaseTriggerHandler_Test"
+History
+<Date>       <Authors Name>                <Brief Description of Change>
+10/02/2019   Dasaradha Ram Budamagunta     changes done for fetching client profile item record files 
+10/05/2019   Dasaradha Ram Budamagunta     added test class name
+------------------------------------------------------------*/
+    public static void autoLoadTasksAfterInsert(list<case> caseList){
+        Id caseRT = Schema.SObjectType.case.getRecordTypeInfosByDeveloperName().get('sbvndr_Secondary_Supplier_Start_Form').getRecordTypeId();
+        Id taskRT 	= SObjectType.Task.getRecordTypeInfosByDeveloperName().get('sbvndr_Checklist_Item').getRecordTypeId();
+        Map<Id,List<sbvndr_Client_Profile_Item__c>> mapCaseIdToListClientProfile = new Map<Id,List<sbvndr_Client_Profile_Item__c>>();
+        Map<Id,List<Id>> mapAccIdToCaseId = new Map<Id,List<Id>>();
+        Map<Id,List<Task>> mapCpiIdToTask = new Map<Id,List<Task>>();
+        Map<Id,List<contentdocumentlink>> mapCpiIdToFileLink = new Map<Id,List<contentdocumentlink>>();
+        List<Task> listTasks = new List<Task>();
+        Map<String,ContentDocumentLink> listContentDocumentMap = new Map<String,ContentDocumentLink>();
+        
+        //capture cases with respective client name associated with in a map
+        for(case c : caseList){
+            if(caseRT!=null && c.RecordTypeId == caseRT && c.sbvndr_Client_Name__c!=null){
+                if(mapAccIdToCaseId.containsKey(c.sbvndr_Client_Name__c)){
+                    mapAccIdToCaseId.get(c.sbvndr_Client_Name__c).add(c.Id);
+                }
+                else{
+                    mapAccIdToCaseId.put(c.sbvndr_Client_Name__c,new List<Id>{c.Id});
+                }
+            }
+        }
+        
+        //capture case with list of client profile items in a map
+        for(sbvndr_Client_Profile_Item__c clientprofile : [SELECT 	Id,
+                                                           			name,sbvndr_Description__c,
+                                                                   	sbvndr_Client__c,
+                                                                    sbvndr_Document_Type__c,
+                                                                   	sbvndr_Non_expiring_Item__c 
+                                                           FROM   sbvndr_Client_Profile_Item__c 
+                                                           WHERE  sbvndr_Client__c=:mapAccIdToCaseId.keyset()])
+        {
+            for(Id accId : mapAccIdToCaseId.keyset()){
+                if(accId == clientprofile.sbvndr_Client__c){
+                    for(Id caseId : mapAccIdToCaseId.get(accId)){
+                        if(mapCaseIdToListClientProfile.containsKey(caseId)){
+                            mapCaseIdToListClientProfile.get(caseId).add(clientprofile);
+                            
+                        }
+                        else{
+                            mapCaseIdToListClientProfile.put(caseId,new List<sbvndr_Client_Profile_Item__c>{clientprofile});
+                            
+                        }
+                    }
+                }
+            }
+        }
+        
+        //create tasks on case for each client profile item related to client name on case
+        //capture case Id and list of tasks in a map
+        for(Id caseId : mapCaseIdToListClientProfile.keySet()){
+            for(sbvndr_Client_Profile_Item__c cp : mapCaseIdToListClientProfile.get(caseId)){
+                task t = new task();
+                t.Status = 'Pending';
+                t.Subject = cp.sbvndr_Description__c;
+                t.sbvndr_Non_Expiring_Item__c = cp.sbvndr_Non_expiring_Item__c;
+                t.sbvndr_Auto_created_from_Client_Profile__c = true;
+                t.sbvndr_Document_Type__c = cp.sbvndr_Document_Type__c;
+                t.RecordTypeId = taskRT;
+                t.WhatId = caseId;
+                if(!mapCpiIdToTask.containsKey(cp.Id)){
+                    mapCpiIdToTask.put(cp.Id,new List<Task>());
+                }
+                mapCpiIdToTask.get(cp.Id).add(t);
+                
+            }//end of cp for loop
+            
+        }//end of case for loop
+        
+        //Insert Tasks
+        if(mapCpiIdToTask.Values().size() > 0 ){
+            for(List<Task> tk : mapCpiIdToTask.Values()){
+                for(Task t : tk){
+                    listTasks.add(t);
+                }
+            }
+           Insert listTasks;
+        }
+        
+        //capture client profile item Id with related list of files 
+        if( mapCpiIdToTask.Keyset().size() > 0 ) {
+            
+            for(contentdocumentlink cdl : [ SELECT ContentDocumentId,
+                                                   Id,
+                                                   LinkedEntityId,
+                                                   ShareType,Visibility 
+                                           FROM    contentdocumentlink 
+                                           WHERE   LinkedEntityId IN :mapCpiIdToTask.keySet() ])
+            {
+                if(!mapCpiIdToFileLink.containsKey(cdl.LinkedEntityId)){
+                    mapCpiIdToFileLink.put(cdl.LinkedEntityId,new List<contentdocumentlink>());                    
+                }
+                mapCpiIdToFileLink.get(cdl.LinkedEntityId).add(cdl); 
+            }
+        }
+            
+            //Retrieve files on client profile item to insert with respective task
+        if(caseList.size() > 0){
+            for(case c : caseList){
+                if(c.sbvndr_Client_Name__c!=null && mapCaseIdToListClientProfile.get(c.Id)!=null && mapCaseIdToListClientProfile.get(c.Id).size() > 0){
+                    for(sbvndr_Client_Profile_Item__c cp : mapCaseIdToListClientProfile.get(c.Id)){
+                        
+                        if(mapCpiIdToTask.containsKey(cp.Id)) {
+                            for(task tsk : mapCpiIdToTask.get(cp.Id)) {
+                                
+                                if(mapCpiIdToFileLink.containsKey(cp.Id)) {
+                                    for(contentdocumentlink cld : mapCpiIdToFileLink.get(cp.Id)) {
+                                        
+                                        if(mapCpiIdToTask.containsKey(cp.Id) && mapCpiIdToTask.get(cp.Id).size() > 0) {
+                                            contentdocumentlink cdlToClone = new contentdocumentlink();
+                                            cdlToClone.LinkedEntityId = tsk.Id;
+                                            cdlToClone.ShareType = cld.ShareType;
+                                            cdlToClone.Visibility = cld.Visibility;
+                                            cdlToClone.ContentDocumentId = cld.ContentDocumentId;
+                                            listContentDocumentMap.put(tsk.Id+''+cld.ContentDocumentId,cdlToClone);
+                                        }//end of if loop   
+                                    }//end of contentdocumentlink for loop
+                                }//end of if loop 
+                            }//end of task for loop
+                        }//end of if loop  
+                    }//end of sbvndr_Client_Profile_Item__c for loop  
+                }//end of if loop
+            }//end of case for loop
+        }//end of if loop
+            
+        //Insert Files to tasks
+        if(!listContentDocumentMap.values().isEmpty()) {
+                insert listContentDocumentMap.values();
+            }    
+    }
+    
+    /*------------------------------------------------------------
+    Author:        Dasaradha Ram Budamagunta
+    Company:       TEK Systems Global Services
+    Description:   A method for autoLoad of Tasks on secondary supplier case (After Update)
+    Inputs:        "OldMap" - Reference to case old instance
+                   "NewMap" - Reference to case new instance
+    Test Class:    
+    History
+    <Date>       <Authors Name>                <Brief Description of Change>
+    10/02/2019   Dasaradha Ram Budamagunta     changes done for fetching client profile item record files 
+    and attaching as case related tasks child records.
+    ------------------------------------------------------------*/
+    public static void autoLoadTasksAfterUpdate(Map<Id,case> OldMap,Map<Id,case> NewMap){
+        Id caseRT = Schema.SObjectType.case.getRecordTypeInfosByDeveloperName().get('sbvndr_Secondary_Supplier_Start_Form').getRecordTypeId();
+        Id taskRT 	= SObjectType.Task.getRecordTypeInfosByDeveloperName().get('sbvndr_Checklist_Item').getRecordTypeId();
+        Map<Id,List<Task>> mapCpiIdToTask = new Map<Id,List<Task>>(); 
+        Map<Id,List<Id>> mapAccIdToCaseId = new Map<Id,List<Id>>();
+        List< contentdocumentlink > listContentDocumentLink = new List<contentdocumentlink>();
+        Map<Id,List<sbvndr_Client_Profile_Item__c>> mapCaseIdToListClientProfile = new Map<Id,List<sbvndr_Client_Profile_Item__c>>();
+        List<Id> csId = new List<Id>();
+        Map<Id,List<contentdocumentlink>> mapCpiIdToFileLink = new Map<Id,List<contentdocumentlink>>();
+        Map<String,ContentDocumentLink> listContentDocumentMap = new Map<String,ContentDocumentLink>();
+        List<Task> oldTasksToDel;
+        List<Task> listTasks = new List<Task>();
+        
+        //capture cases with respective client name associated with in a map
+        for( Case cs : newMap.values() ) {
+            if(caseRT != null && cs.RecordTypeId == caseRT){
+                if(OldMap.get(cs.id).sbvndr_Client_Name__c == null && 
+                   OldMap.get(cs.id).sbvndr_Client_Name__c!= cs.sbvndr_Client_Name__c ) {
+                       if(mapAccIdToCaseId.containsKey(cs.sbvndr_Client_Name__c)){
+                           
+                           mapAccIdToCaseId.get(cs.sbvndr_Client_Name__c).add(cs.Id);
+                       }
+                       else{
+                           mapAccIdToCaseId.put(cs.sbvndr_Client_Name__c,new List<Id>{cs.Id});
+                       }
+                   }
+                
+                
+                if(OldMap.get(cs.id).sbvndr_Client_Name__c != null && 
+                   OldMap.get(cs.id).sbvndr_Client_Name__c!= cs.sbvndr_Client_Name__c ) {
+                       csId.add(cs.Id);
+                       if(mapAccIdToCaseId.containsKey(cs.sbvndr_Client_Name__c)){
+                           
+                           mapAccIdToCaseId.get(cs.sbvndr_Client_Name__c).add(cs.Id);
+                       }
+                       else{
+                           mapAccIdToCaseId.put(cs.sbvndr_Client_Name__c,new List<Id>{cs.Id});
+                       }
+                   }
+                if(NewMap.get(cs.id).sbvndr_Client_Name__c == null && 
+                   OldMap.get(cs.id).sbvndr_Client_Name__c!= cs.sbvndr_Client_Name__c ) {
+                       csId.add(cs.Id);
+                   }
+            }
+        }
+        
+        //Delete the old tasks created for old client name on case
+        if(csId.size() > 0){
+            oldTasksToDel = [SELECT Id,sbvndr_Auto_created_from_Client_Profile__c FROM Task WHERE WhatId =: csId and sbvndr_Auto_created_from_Client_Profile__c=true];
+        }
+        if(oldTasksToDel!=null && oldTasksToDel.size() > 0 ){       
+            delete oldTasksToDel;
+        }
+        
+        //capture case with list of client profile items in a map
+        for(sbvndr_Client_Profile_Item__c clientprofile : [ SELECT Id,
+                                                                   name,
+                                                                   sbvndr_Description__c,
+                                                                   sbvndr_Non_expiring_Item__c,
+                                                                   sbvndr_Document_Type__c,
+                                                                   sbvndr_Client__c
+                                                           FROM    sbvndr_Client_Profile_Item__c 
+                                                           WHERE   sbvndr_Client__c IN :mapAccIdToCaseId.keyset()]){
+                                                               
+                                                               for(Id accId : mapAccIdToCaseId.keyset()){
+                                                                   if(accId == clientprofile.sbvndr_Client__c){
+                                                                       for(Id caseId : mapAccIdToCaseId.get(accId)){
+                                                                           if(mapCaseIdToListClientProfile.containsKey(caseId)){
+                                                                               mapCaseIdToListClientProfile.get(caseId).add(clientprofile);
+                                                                               
+                                                                           }
+                                                                           else{
+                                                                               mapCaseIdToListClientProfile.put(caseId,new List<sbvndr_Client_Profile_Item__c>{clientprofile});
+                                                                               
+                                                                           }
+                                                                       }
+                                                                   }
+                                                               }
+                                                           }
+        
+        
+        //create tasks on case for each client profile item related to client name on case
+        //capture case Id and list of tasks in a map
+        for(Id caseId : mapCaseIdToListClientProfile.keySet()){
+            for(sbvndr_Client_Profile_Item__c cp : mapCaseIdToListClientProfile.get(caseId)){
+                task t = new task();
+                t.Status = 'Pending';
+                t.Subject = cp.sbvndr_Description__c;
+                t.sbvndr_Non_Expiring_Item__c = cp.sbvndr_Non_expiring_Item__c;
+                t.sbvndr_Auto_created_from_Client_Profile__c = true;
+                t.sbvndr_Document_Type__c = cp.sbvndr_Document_Type__c;
+                t.RecordTypeId = taskRT;
+                t.WhatId = caseId;
+                if(!mapCpiIdToTask.containsKey(cp.Id)){
+                    
+                    mapCpiIdToTask.put(cp.Id,new List<Task>());
+                }
+                
+                mapCpiIdToTask.get(cp.Id).add(t);
+            }//end of cp for loop
+            
+        }//end of case for loop   
+        
+        //Insert Tasks
+        if(mapCpiIdToTask.Values().size() > 0 ){
+            for(List<Task> tk : mapCpiIdToTask.Values()){
+                for(Task t : tk){
+                    listTasks.add(t);
+                }
+            }
+            Insert listTasks;
+        }
+        
+        //capture client profile item Id with related list of files 
+        if( mapCpiIdToTask.Keyset().size() > 0 ) {
+            
+            for(contentdocumentlink cdl : [ SELECT ContentDocumentId,
+                                                   Id,
+                                                   LinkedEntityId,
+                                                   ShareType,Visibility 
+                                           FROM    contentdocumentlink 
+                                           WHERE   LinkedEntityId IN :mapCpiIdToTask.keySet() ])
+            {
+                if(!mapCpiIdToFileLink.containsKey(cdl.LinkedEntityId)){
+                    mapCpiIdToFileLink.put(cdl.LinkedEntityId,new List<contentdocumentlink>());                    
+                }
+                mapCpiIdToFileLink.get(cdl.LinkedEntityId).add(cdl); 
+            }
+        }
+        
+        //Retrieve files on client profile item to insert with respective task
+        if(newMap.values().size() > 0){
+            for(Case c : newMap.values()){
+                if(c.sbvndr_Client_Name__c!=null && mapCaseIdToListClientProfile.get(c.Id)!=null && mapCaseIdToListClientProfile.get(c.Id).size() > 0){
+                    for(sbvndr_Client_Profile_Item__c cp : mapCaseIdToListClientProfile.get(c.Id)){
+                        
+                        if(mapCpiIdToTask.containsKey(cp.Id)) {
+                            for(task tsk : mapCpiIdToTask.get(cp.Id)) {
+                                
+                                if(mapCpiIdToFileLink.containsKey(cp.Id)) {
+                                    for(contentdocumentlink cld : mapCpiIdToFileLink.get(cp.Id)) {
+                                        
+                                        if(mapCpiIdToTask.containsKey(cp.Id) && mapCpiIdToTask.get(cp.Id).size() > 0) {
+                                            contentdocumentlink cdlToClone = new contentdocumentlink();
+                                            cdlToClone.LinkedEntityId = tsk.Id;
+                                            cdlToClone.ShareType = cld.ShareType;
+                                            cdlToClone.Visibility = cld.Visibility;
+                                            cdlToClone.ContentDocumentId = cld.ContentDocumentId;
+                                            listContentDocumentMap.put(tsk.Id+''+cld.ContentDocumentId,cdlToClone);
+                                        }//end of if loop  
+                                    }//end of contentdocumentlink for loop
+                                }//end of if loop
+                            }//end of task for loop
+                        }//end of if loop
+                    }//end of sbvndr_Client_Profile_Item__c for loop  
+                }//end of if loop
+            }//end of case for loop
+        }//end of if loop
+        
+        
+            //Insert Files to tasks
+        if(!listContentDocumentMap.values().isEmpty()) {
+            insert listContentDocumentMap.values();
+        }    
+       
+    }//end of method autoLoadTasksAfterUpdate
+    
+    /*------------------------------------------------------------
+Author:        Manoj Goswami
+Company:       TEK Systems Global Services
+Description:   A method for autoLoad of Tasks on secondary supplier case (After Insert)
+Inputs:        "Trigger.New" - Reference to new case instance
+Test Class:    
+History
+<Date>       <Authors Name>                <Brief Description of Change>
+10/03/2019   Manoj Goswami     		changes done for fetching all SubVendor Template Task and linking with Case record     
+------------------------------------------------------------*/
+    public static void autoLoadTasksFromTemplateAfterInsert(List<Case> TriggerNew){
+        Id SubvendorChecklistItemTemplateId = SObjectType.sbvndr_Task_Template__c.getRecordTypeInfosByDeveloperName().get('sbvndr_Checklist_Item_Template').getRecordTypeId();
+        Id SubvendorChecklistItemTaskId 	= SObjectType.Task.getRecordTypeInfosByDeveloperName().get('sbvndr_Checklist_Item').getRecordTypeId();
+        
+        Map<Id, sbvndr_Task_Template__c> taskTemplateRecords = new Map<Id,sbvndr_Task_Template__c>([SELECT Id, sbvndr_Document_Type__c, sbvndr_Template_Type__c, RecordTypeId 
+                                                                                                    FROM sbvndr_Task_Template__c 
+                                                                                                    WHERE RecordTypeId =: SubvendorChecklistItemTemplateId 
+                                                                                                    AND sbvndr_Template_Type__c = 'Secondary Supplier Start']);
+        if(taskTemplateRecords.values().size() > 0){
+            List<Task> taskList = new List<Task>();
+            for(Case c : TriggerNew){
+                if(c.RecordTypeId == SObjectType.Case.getRecordTypeInfosByDeveloperName().get('sbvndr_Secondary_Supplier_Start_Form').getRecordTypeId()){
+                    for(sbvndr_Task_Template__c tt : taskTemplateRecords.values()){
+                        Task t = new Task();	
+                        t.RecordTypeId 	= SubvendorChecklistItemTaskId; 
+                        //t.OwnerId 		= userInfo.getUserId();
+                        t.WhatId 		= c.Id;
+                        t.sbvndr_Template__c = tt.Id;                        
+                        taskList.add(t);
+                    }                 
+                }
+            }
+            insert taskList;
+        }
+        
+    } // end of method autoLoadTasksFromTemplateAfterInsert
+}
