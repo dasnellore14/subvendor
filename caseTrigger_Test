@@ -1,0 +1,163 @@
+/*------------------------------------------------------------
+Author:        Dasaradha Ram Budamagunta
+Company:       TEK Systems Global Services
+Description:   Test class for "CaseTriggerHandler" class
+Inputs:        
+Test Class:    
+History
+<Date>       <Authors Name>                <Brief Description of Change>
+------------------------------------------------------------*/
+@isTest
+public class CaseTriggerHandler_Test {
+    private static list<case> listOfCases;
+    private static Account acc;
+    private static sbvndr_Task_Template__c taskTemplate;
+    private static case c;
+    private static sbvndr_Client_Profile_Item__c cpi;
+    private static ContentVersion cv;
+    private static ContentDocumentLink cdl;
+    private static string CaseRT = Schema.SObjectType.case.getRecordTypeInfosByDeveloperName().get('sbvndr_Secondary_Supplier_Start_Form').getRecordTypeId();
+    private static string AccRT  = Schema.SObjectType.account.getRecordTypeInfosByDeveloperName().get('sbvndr_Client').getRecordTypeId();
+    @Testsetup
+    static void testdata(){
+        
+    }
+    
+    /*------------------------------------------------------------
+    Author:        Manoj Goswami
+    Company:       TEK Systems Global Services
+    Description:   Test Method for "autoLoadTasksFromTemplateAfterInsert" Method in original class
+    Inputs:        calling sbvndr_test_data_factory class for data whenever required
+    History
+    <Date>       <Authors Name>                <Brief Description of Change>
+------------------------------------------------------------*/
+    static testmethod void autoLoadTasksFromTemplateAfterInsertTest(){
+        List<Account> lacc = sbvndr_test_data_factory.createAccount(1,false);
+        Insert lacc;
+        Account acc = [select id,RecordTypeId from Account where id=:lacc[0].Id];
+        cpi = sbvndr_test_data_factory.createClientProfileItems(acc.Id);
+        Insert cpi;
+		taskTemplate = sbvndr_test_data_factory.createTaskTemplate('Secondary Supplier Start');       
+        insert taskTemplate;
+        c  = sbvndr_test_data_factory.createCase(acc.Id);
+        c.sbvndr_Client_Name__c = acc.Id;
+        Insert c;
+        //Test the actual and expected results using assert
+        integer checklistItemCount = [select count() from Task where WhatId=:c.Id 
+                                      AND sbvndr_Template__c IN (SELECT Id FROM sbvndr_Task_Template__c 
+                                                                 WHERE sbvndr_Template_Type__c = 'Secondary Supplier Start')];        
+        system.assertEquals(checklistItemCount,1);
+    }
+         /*------------------------------------------------------------
+    
+        /*------------------------------------------------------------
+Author:        Dasaradha Ram Budamagunta
+Company:       TEK Systems Global Services
+Description:   Test Method for "autoLoadTasksAfterInsert" Method in original class
+Inputs:        calling sbvndr_test_data_factory class for data whenever required
+Test Class:    
+History
+<Date>       <Authors Name>                <Brief Description of Change>
+------------------------------------------------------------*/
+    static testmethod void autoLoadTasksAfterInsertTest(){
+        List<Account> lacc = sbvndr_test_data_factory.createAccount(1,false);
+        Insert lacc;
+        Account acc = [select id,RecordTypeId from Account where id=:lacc[0].Id];
+        cpi = sbvndr_test_data_factory.createClientProfileItems(acc.Id);
+        Insert cpi;
+        c  = sbvndr_test_data_factory.createCase(acc.Id);
+        c.sbvndr_Client_Name__c = acc.Id;
+        Insert c;
+        //Test the actual and expected results using assert
+        integer ChecklistItemCount = [select count() from Task where WhatId=:c.Id];
+        system.assertEquals(ChecklistItemCount,1);
+    }
+         /*------------------------------------------------------------
+Author:        Dasaradha Ram Budamagunta
+Company:       TEK Systems Global Services
+Description:   Test Method for "autoLoadTasksAfterUpdate" Method in original class
+Inputs:        calling sbvndr_test_data_factory class for data whenever required
+Test Class:    
+History
+<Date>       <Authors Name>                <Brief Description of Change>
+------------------------------------------------------------*/
+    static testmethod void AfterUpdateWhenOldClientNameNullTest(){
+       List<Account> lacc = sbvndr_test_data_factory.createAccount(1,false);
+        Insert lacc;
+        Account acc = [select id,RecordTypeId from Account where id=:lacc[0].Id];
+        cpi = sbvndr_test_data_factory.createClientProfileItems(acc.Id);
+        Insert cpi;
+        cv = sbvndr_test_data_factory.createContentVersion();
+        Insert cv;
+        cdl = sbvndr_test_data_factory.createFile(cv.Id,cpi.Id);
+        Insert cdl;
+        c  = sbvndr_test_data_factory.createCase(acc.Id);
+        c.sbvndr_Client_Name__c = null;
+        Insert c;
+        c.sbvndr_Client_Name__c = acc.Id;
+        update c;
+        //Test the actual and expected results using assert
+        integer ChecklistItemCount = [select count() from Task where WhatId=:c.Id];
+        system.assertEquals(ChecklistItemCount,1);
+    }
+             /*------------------------------------------------------------
+Author:        Dasaradha Ram Budamagunta
+Company:       TEK Systems Global Services
+Description:   Test Method for "autoLoadTasksAfterUpdate" Method in original class
+Inputs:        calling sbvndr_test_data_factory class for data whenever required
+Test Class:    
+History
+<Date>       <Authors Name>                <Brief Description of Change>
+------------------------------------------------------------*/
+    static testmethod void AfterUpdateTestWhenClientNameChangesTest(){
+        List<Account> lacc = sbvndr_test_data_factory.createAccount(2,false);
+        Insert lacc;
+        Account acc = [select id,RecordTypeId from Account where id=:lacc[0].Id];
+        Account acc1 = [select id,RecordTypeId from Account where id=:lacc[1].Id];
+        acc1.Name = 'Test2';
+        update acc1;
+        cpi = sbvndr_test_data_factory.createClientProfileItems(acc.Id);
+        Insert cpi;
+        cv = sbvndr_test_data_factory.createContentVersion();
+        Insert cv;
+        cdl = sbvndr_test_data_factory.createFile(cv.Id,cpi.Id);
+        Insert cdl;
+        sbvndr_Client_Profile_Item__c cpi1 = sbvndr_test_data_factory.createClientProfileItems(acc1.Id);
+        Insert cpi1;
+        sbvndr_Client_Profile_Item__c cpi2 = sbvndr_test_data_factory.createClientProfileItems(acc1.Id);
+        Insert cpi2;
+        case c  = sbvndr_test_data_factory.createCase(acc.Id);
+        c.sbvndr_Client_Name__c = acc.Id;
+        Insert c;
+        c.sbvndr_Client_Name__c = acc1.Id;
+        update c;
+        //Test the actual and expected results using assert
+        integer ChecklistItemCount = [select count() from Task where WhatId=:c.Id];
+        system.assertEquals(ChecklistItemCount,2);
+        
+        
+    }
+    static testmethod void AfterUpdateWhenNewClientNameNullTest(){
+        List<Account> lacc = sbvndr_test_data_factory.createAccount(1,false);
+         Insert lacc;
+        Account acc = [select id,RecordTypeId from Account where id=:lacc[0].Id];
+        cpi = sbvndr_test_data_factory.createClientProfileItems(acc.Id);
+        Insert cpi;
+        cv = sbvndr_test_data_factory.createContentVersion();
+        Insert cv;
+        cdl = sbvndr_test_data_factory.createFile(cv.Id,cpi.Id);
+        Insert cdl;
+        c  = sbvndr_test_data_factory.createCase(acc.Id);
+        c.sbvndr_Client_Name__c = acc.Id;
+        Insert c;
+        c.sbvndr_Client_Name__c = null;
+        update c;
+        //Test the actual and expected results using assert
+        integer ChecklistItemCount1 = [select count() from Task where WhatId=:c.Id];
+        system.assertEquals(ChecklistItemCount1,0);
+    }
+    
+    //////////////////////////////////////
+    
+    
+}
